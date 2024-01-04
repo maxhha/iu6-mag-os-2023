@@ -6,6 +6,7 @@
 #include <unistd.h>
 
 #include "../inc/main.h"
+#include "../inc/receive_queen_addr.h"
 
 typedef struct arguments_s {
     int port;
@@ -54,18 +55,20 @@ int main(int argc, char **argv) {
         goto fail_receive_queen_addr;
     }
 
-    int queen_s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (queen_s < 0) {
+    int emmet_s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (emmet_s < 0) {
         perror("main: socket");
         rc = 1;
         goto fail_socket;
     }
 
-    if (connect(queen_s, (struct sockaddr *) &queen_addr, sizeof(queen_addr)) < 0) {
+    if (connect(emmet_s, (struct sockaddr *) &queen_addr, sizeof(queen_addr)) < 0) {
         perror("main: connect");
         rc = 1;
         goto fail_connect;
     }
+
+    sleep(10);
 
     /*
         Emmet creates tcp connection to queen.
@@ -80,7 +83,7 @@ int main(int argc, char **argv) {
     */
 
 fail_connect:
-    close(queen_s);
+    close(emmet_s);
 
 fail_socket:
 fail_receive_queen_addr:

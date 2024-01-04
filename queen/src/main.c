@@ -10,8 +10,10 @@
 #include <unistd.h>
 #include <netdb.h>
 
-
 #include "../inc/main.h"
+#include "../inc/broadcast_queen_port.h"
+#include "../inc/create_queen_socket.h"
+#include "../inc/queen_state.h"
 
 typedef struct arguments_s
 {
@@ -19,6 +21,16 @@ typedef struct arguments_s
     int port;
     int wait;
 } *arguments_p;
+
+typedef struct job_s
+{
+    int state;
+    int emmet_s;
+} *job_p;
+
+#define JOB_WAITING 0
+#define JOB_PROCESSING 1
+#define JOB_RECEIVING 2
 
 static char doc[] = "Queen of the colony";
 static char args_doc[] = "[-a ADDR] [-p PORT] [-w SECONDS]";
@@ -52,45 +64,6 @@ static int parse_opt(int key, char *arg, struct argp_state *state)
 
 static struct argp argp = {options, parse_opt, args_doc, doc};
 
-int broadcast_queen_port(const arguments_p args, in_port_t port)
-{
-    int rc = 0;
-    int bcast_s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (bcast_s < 0)
-    {
-        fprintf(stderr, "broadcast_queen_port: socket: fail to create bcast_s\n");
-        return 1;
-    }
-    int broadcast_enable = 1;
-    if (setsockopt(bcast_s, SOL_SOCKET, SO_BROADCAST, &broadcast_enable, sizeof(broadcast_enable)))
-    {
-        perror("broadcast_queen_port: setsockopt");
-        rc = 1;
-        goto fail_setsockopt;
-    }
-
-    struct sockaddr_in colony_addr = {0};
-    colony_addr.sin_family = AF_INET;
-    colony_addr.sin_addr.s_addr = inet_addr(args->address);
-    colony_addr.sin_port = htons(args->port);
-
-    ssize_t sent_n = sendto(bcast_s, &port, sizeof(port), 0, (struct sockaddr *)&colony_addr, sizeof(colony_addr));
-    if (sent_n < 0)
-    {
-        perror("main: sendto failed");
-        rc = 1;
-        goto fail_sendto;
-    }
-
-    printf("Sent %ld\n", sent_n);
-
-fail_sendto:
-fail_setsockopt:
-    close(bcast_s);
-
-    return rc;
-}
-
 int main(int argc, char **argv)
 {
     int rc = 0;
@@ -105,111 +78,195 @@ int main(int argc, char **argv)
         return rc;
     }
 
-    int fd_s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    int enable = 1;
-    if (setsockopt(fd_s, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable)) < 0)
-    {
-        perror("main: setsockopt");
-        rc = 1;
-        goto fail_setsockopt;
-    }
-
-    if (ioctl(fd_s, FIONBIO, &enable) < 0)
-    {
-        perror("main: ioctl");
-        rc = 1;
-        goto fail_ioctl;
-    }
-
     struct sockaddr_in addr = {0};
-    socklen_t addr_len = sizeof(addr);
-
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = INADDR_ANY;
     addr.sin_port = 0; // TODO: move to args
 
-    if (bind(fd_s, (struct sockaddr *)&addr, sizeof(addr)) < 0)
+    int queen_s;
+    rc = create_queen_socket(&addr, &queen_s);
+    if (rc != 0)
     {
-        perror("main: bind");
-        rc = 1;
-        goto fail_bind;
+        return 1;
     }
 
-    if (getsockname(fd_s, (struct sockaddr *)&addr, &addr_len) < 0)
-    {
-        perror("main: getsockname");
-        rc = 1;
-        goto fail_getsockname;
-    }
-
-    if (listen(fd_s, 32) < 0)
+    if (listen(queen_s, 32) < 0)
     { // TODO: move listen limit to args
         perror("main: listen");
         rc = 1;
         goto fail_listen;
     }
+    fprintf(stderr, "Queen listen tcp conn on port %d\n", ntohs(addr.sin_port));
 
-    printf("Queen listen tcp conn on port %d\n", ntohs(addr.sin_port));
-
-    rc = broadcast_queen_port(&args, addr.sin_port);
+    rc = broadcast_queen_port(args.address, args.port, addr.sin_port);
     if (rc != 0)
     {
         goto fail_broadcast_queen_port;
     }
 
-    struct pollfd fds[200];
-    int nfds = 0;
-    memset(fds, 0, sizeof(fds));
+    fprintf(stderr, "Waiting for emmet...\n");
 
-    printf("Waiting for emmets...\n");
+    struct queen_state_s state = {
+        .queen_s = queen_s,
+        .emmets_n = 0,
+        .duties_n = 0,
+    };
+    memset(&state.fds, 0, sizeof(state.fds));
+    state.fds[0].fd = queen_s;
+    state.fds[0].events = POLLIN;
 
-    for (int i = 0; i < args.wait; i++)
+    memset(&state.duties, 0, sizeof(state.duties));
+    state.duties[0].type = DUTY_TYPE_DELEGATE;
+    state.duties[0].state = DUTY_STATE_WAITING;
+
+    state.duties_n = 1;
+
+    while (state.duties_n > 0)
     {
-        sleep(1);
-        printf(".\n");
-
-        while (1)
+        int timeout = args.wait * 1000;
+        int fds_n = 1 + state.emmets_n;
+        int poll_rc = poll(state.fds, fds_n, timeout);
+        if (poll_rc < 0)
         {
-            struct sockaddr_in addr = {0};
-            socklen_t addr_len = sizeof(addr);
-            int new_s = accept(fd_s, (struct sockaddr *)&addr, &addr_len);
-            if (new_s < 0)
+            perror("main: poll");
+            rc = 1;
+            goto fail_poll;
+        }
+
+        if (poll_rc == 0) {
+            int emmet_i = 0;
+            while (emmet_i < state.emmets_n && state.emmets[emmet_i].state == EMMET_STATE_EMPTY) emmet_i++;
+            if (emmet_i >= state.emmets_n) {
+                fprintf(stderr, "main: poll timeout and no emmets cause death\n");
+                rc = 1;
+                goto fail_poll;
+            }
+        }
+
+        for (int i = 0; i < fds_n; i++)
+        {
+            if (state.fds[i].revents == 0 || state.fds[i].events == 0)
             {
-                if (errno != EWOULDBLOCK)
+                continue;
+            }
+
+            if (state.fds[i].fd == queen_s)
+            {
+                if (state.fds[i].revents != POLLIN)
                 {
-                    perror("main: accept");
-                    goto fail_accept;
+                    fprintf(stderr, "main: queen_s revents = %d\n", state.fds[i].revents);
+                    rc = 1;
+                    goto fail_queen_revents;
                 }
+
+                for (;;)
+                {
+                    struct sockaddr_in addr = {0};
+                    socklen_t addr_len = sizeof(addr);
+                    int new_s = accept(queen_s, (struct sockaddr *)&addr, &addr_len);
+                    if (new_s < 0)
+                    {
+                        if (errno != EWOULDBLOCK)
+                        {
+                            perror("main: accept");
+                            goto fail_accept;
+                        }
+                        break;
+                    }
+
+                    char remote_host[256] = "unknown";
+                    char remote_port[256] = "unknown";
+                    int err;
+
+                    if ((err = getnameinfo((struct sockaddr *)&addr, addr_len,
+                                           remote_host, sizeof(remote_host),
+                                           remote_port, sizeof(remote_port),
+                                           0)) != 0)
+                    {
+                        fprintf(stderr, "main: getnameinfo failed with err=%d\n", err);
+                    }
+
+                    if (state.emmets_n >= MAX_EMMETS) {
+                        fprintf(stderr, "main: fail accept new connection due to MAX_EMMETS limit\n");
+                        close(new_s);
+                        continue;
+                    }
+
+                    int emmet_i = state.emmets_n;
+                    state.emmets[emmet_i].state = EMMET_STATE_CHILLING;
+                    fprintf(stderr, "+ Ж #%d %s:%s\n", emmet_i + 1, remote_host, remote_port);
+
+                    int fd_i = emmet_i + 1;
+                    state.fds[fd_i].fd = new_s;
+                    state.fds[fd_i].events = POLLIN;
+                    state.emmets_n += 1;
+                }
+                continue;
+            }
+
+            int emmet_i = i - 1;
+
+            if (state.fds[i].revents & POLLERR) {
+                fprintf(stderr, "main: revents contain POLLERR\n");
+                fprintf(stderr, "- Ж #%d\n", emmet_i + 1);
+                state.emmets[emmet_i].state = EMMET_STATE_EMPTY;
+                state.fds[i].fd = 0;
+                state.fds[i].events = 0;
+                continue;
+            }
+
+            if (state.fds[i].revents & POLLIN) {
+                ssize_t recv_n = recv(state.fds[i].fd, NULL, 0, MSG_PEEK);
+                if (recv_n <= 0) {
+                    perror("main: recv from emmet");
+                    fprintf(stderr, "- Ж #%d\n", emmet_i + 1);
+                    state.emmets[emmet_i].state = EMMET_STATE_EMPTY;
+                    state.fds[i].events = 0;
+                    continue;
+                }
+
+                fprintf(stderr, "R Ж #%d -> [%ld]\n", emmet_i + 1, recv_n);
+            }
+
+            fprintf(stderr, "main: unsupported emmet revents %d\n", state.fds[i].revents);
+        }
+
+        for (int duty_i = 0; duty_i < state.duties_n; duty_i++) {
+            if (state.duties[duty_i].type != DUTY_TYPE_DELEGATE
+            && state.duties[duty_i].state != DUTY_STATE_WAITING) {
+                continue;
+            }
+
+            for (int emmet_i = 0; emmet_i < state.emmets_n; emmet_i++) {
+                if (state.emmets[emmet_i].state != EMMET_STATE_CHILLING) {
+                    continue;
+                }
+
+                struct { int action; int duty_i; } msg = {
+                    .action = state.duties[duty_i].type,
+                    .duty_i = duty_i,
+                };
+
+                ssize_t sent_n = send(state.fds[emmet_i + 1].fd, &msg, sizeof(msg), 0);
+                if (sent_n < 0) {
+                    // TODO: check sent size
+                    fprintf(stderr, "main: send emmet #%d duty\n", emmet_i + 1);
+                    state.emmets[emmet_i].state = EMMET_STATE_EMPTY;
+                } else {
+                    fprintf(stderr, "S Ж #%d <- duty #%d [%ld]\n", emmet_i + 1, duty_i + 1, sent_n);
+                    state.emmets[emmet_i].processing_duty_i = duty_i;
+                    state.emmets[emmet_i].state = EMMET_STATE_HARD_WORKING;
+
+                    state.duties[duty_i].state = DUTY_STATE_PROCESSING;
+                    break;
+                }
+            }
+
+            if (state.duties[duty_i].state == DUTY_STATE_WAITING) {
                 break;
             }
-
-            char remote_host[256];
-            char remote_port[256];
-            int err;
-
-            if ((err = getnameinfo((struct sockaddr *)&addr, addr_len,
-                            remote_host, sizeof(remote_host),
-                            remote_port, sizeof(remote_port),
-                            0)) != 0)
-            {
-                fprintf(stderr, "main: getnameinfo failed with err=%d\n", err);
-            } else {
-                printf("+ Ж %s:%s\n", remote_host, remote_port);
-            }
-
-            fds[nfds].fd = new_s;
-            fds[nfds].events = POLLIN;
-            nfds++;
         }
     }
-
-    if (nfds == 0) {
-        fprintf(stderr, "No emmets, exit\n");
-        rc = 1;
-        goto fail_empty_fds;
-    }
-
-    printf("Total emmets: %d\n", nfds);
 
     // fds[0].fd = fd_s;
     // fds[0].events = POLLIN;
@@ -225,19 +282,17 @@ int main(int argc, char **argv)
     //     }
     // }
 
-fail_empty_fds:
 fail_accept:
-    for (int i = 0; i < nfds; i++) {
-        close(fds[i].fd);
+fail_queen_revents:
+fail_poll:
+    for (int i = 0; i < state.emmets_n; i++)
+    {
+        close(state.fds[i + 1].fd);
     }
 
 fail_broadcast_queen_port:
 fail_listen:
-fail_getsockname:
-fail_bind:
-fail_ioctl:
-fail_setsockopt:
-    close(fd_s);
+    close(queen_s);
 
     return rc;
 }
