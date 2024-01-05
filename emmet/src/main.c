@@ -82,6 +82,11 @@ int main(int argc, char **argv) {
             goto fail_recv;
         }
 
+        if (recv_n == 0) {
+            fprintf(stderr, "Queen left me alone...\n");
+            break;
+        }
+
         if (recv_n != sizeof(int)) {
             fprintf(stderr, "main: duty_size recv_n not sizeof int %ld != %ld\n", recv_n, sizeof(int));
             rc = 1;
