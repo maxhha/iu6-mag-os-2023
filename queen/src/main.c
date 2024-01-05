@@ -119,6 +119,8 @@ int main(int argc, char **argv)
     fprintf(stderr, "Waiting for emmet...\n");
 
     while (state->finished_duties_n < state->duties->size) {
+        fprintf(stderr, "\nQ Progress: %.0lf%%\n\n", (float) state->finished_duties_n * 100 / state->duties->size);
+
         rc = run_queen(state, args.wait * 1000);
         if (rc != 0) {
             goto fail_run_queen;
