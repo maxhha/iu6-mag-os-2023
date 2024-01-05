@@ -13,7 +13,9 @@
 #include "../inc/queen_state.h"
 
 #define T duty_p
+#define FREE_T() free_duty
 #include "vec.tmpl.c"
+#undef FREE_T
 #undef T
 
 queen_state_p create_queen_state(int queen_socket)
@@ -37,6 +39,7 @@ queen_state_p create_queen_state(int queen_socket)
     {
         goto fail_create_vec_duty;
     }
+    s->finished_duties_n = 0;
 
     return s;
 
@@ -106,6 +109,10 @@ void drop_emmet(queen_state_p s, int emmet_i)
     fprintf(stderr, "- Ж #%d\n", emmet_i + 1);
 
     int fd_i = emmet_i + 1;
+    if (s->emmets[emmet_i].state == EMMET_STATE_HARD_WORKING) {
+        s->duties->data[s->emmets[emmet_i].processing_duty_i]->state = DUTY_STATE_WAITING;
+    }
+
     s->emmets[emmet_i].state = EMMET_STATE_EMPTY;
     s->fds[fd_i].fd = 0;
     s->fds[fd_i].events = 0;
@@ -126,17 +133,41 @@ int process_emmet_socket_events(queen_state_p s, struct pollfd *fd, int fd_i)
 
     if (fd->revents & POLLIN)
     {
-        ssize_t recv_n = recv(fd->fd, NULL, 0, MSG_PEEK);
-        if (recv_n <= 0)
+        // TODO: check emmet state
+        // fprintf(stderr, "process_emmet_socket_events: POLLIN\n");
+        int duty_i = s->emmets[emmet_i].processing_duty_i;
+        duty_p d = s->duties->data[duty_i];
+        int *buf = (int *) malloc(sizeof(int) * d->size);
+
+        ssize_t recv_n = recv(fd->fd, buf, sizeof(int) * d->size, 0);
+        if (recv_n < 0)
         {
             perror("process_emmet_socket_events: recv from emmet");
-
+            free(buf);
             drop_emmet(s, emmet_i);
 
             return 0;
         }
 
-        fprintf(stderr, "R Ж #%d -> [%ld]\n", emmet_i + 1, recv_n);
+        if (recv_n != sizeof(int) * d->size) {
+            fprintf(stderr, "process_emmet_socket_events: recv_n mismatch duty size %ld != %ld\n", recv_n, sizeof(int) * d->size);
+            free(buf);
+            drop_emmet(s, emmet_i);
+
+            return 0;
+        }
+
+        fprintf(stderr, "R Ж #%d -> duty #%d\n", emmet_i + 1, duty_i + 1);
+
+        d->result = buf;
+        free(d->input);
+        d->input = NULL;
+        d->state = DUTY_STATE_FINISHED;
+
+        s->finished_duties_n++;
+
+        s->emmets[emmet_i].state = EMMET_STATE_CHILLING;
+        return 0;
     }
 
     fprintf(stderr, "process_emmet_socket_events: unsupported emmet revents %d\n", fd->revents);
@@ -148,6 +179,7 @@ int process_duties(queen_state_p s)
 {
     for (int duty_i = 0; duty_i < s->duties->size; duty_i++)
     {
+        // fprintf(stderr, "check duty #%d\n", duty_i + 1);
         duty_p d = s->duties->data[duty_i];
         if (d->state != DUTY_STATE_WAITING)
         {
@@ -156,35 +188,40 @@ int process_duties(queen_state_p s)
 
         for (int emmet_i = 0; emmet_i < s->emmets_n; emmet_i++)
         {
-            if (s->emmets[emmet_i].state != EMMET_STATE_CHILLING)
+            // fprintf(stderr, "check emmet #%d\n", emmet_i + 1);
+            emmet_p emmet = &s->emmets[emmet_i];
+
+            if (emmet->state != EMMET_STATE_CHILLING)
             {
                 continue;
             }
 
-            struct
-            {
-                int duty_i;
-            } msg = {
-                .duty_i = duty_i,
-            };
+            // fprintf(stderr, "its chilling!\n");
 
             int fd_i = emmet_i + 1;
-            ssize_t sent_n = send(s->fds[fd_i].fd, &msg, sizeof(msg), 0);
-            if (sent_n < 0)
-            {
-                // TODO: check sent size
-                fprintf(stderr, "process_duties: send emmet #%d duty\n", emmet_i + 1);
-                s->emmets[emmet_i].state = EMMET_STATE_EMPTY;
-            }
-            else
-            {
-                fprintf(stderr, "S Ж #%d <- duty #%d [%ld]\n", emmet_i + 1, duty_i + 1, sent_n);
-                s->emmets[emmet_i].processing_duty_i = duty_i;
-                s->emmets[emmet_i].state = EMMET_STATE_HARD_WORKING;
 
-                d->state = DUTY_STATE_PROCESSING;
-                break;
+            ssize_t sent_n = send(s->fds[fd_i].fd, &d->size, sizeof(int), 0);
+            if (sent_n < 0 || sent_n != sizeof(int))
+            {
+                fprintf(stderr, "process_duties: send emmet #%d duty size of [%ld] but sent [%ld]\n", emmet_i + 1, sizeof(int), sent_n);
+                drop_emmet(s, emmet_i);
+                continue;
             }
+
+            sent_n = send(s->fds[fd_i].fd, d->input, sizeof(int) * d->size, 0);
+            if (sent_n < 0 || sent_n != sizeof(int) * d->size)
+            {
+                fprintf(stderr, "process_duties: send emmet #%d duty [%ld] but sent [%ld]\n", emmet_i + 1, sizeof(int) * d->size, sent_n);
+                drop_emmet(s, emmet_i);
+                continue;
+            }
+
+            fprintf(stderr, "S Ж #%d <- duty #%d [%d]\n", emmet_i + 1, duty_i + 1, d->size);
+            emmet->processing_duty_i = duty_i;
+            emmet->state = EMMET_STATE_HARD_WORKING;
+
+            d->state = DUTY_STATE_PROCESSING;
+            break;
         }
 
         if (d->state == DUTY_STATE_WAITING)
@@ -193,11 +230,15 @@ int process_duties(queen_state_p s)
         }
     }
 
+    // fprintf(stderr, "process_duties: finished\n");
+
     return 0;
 }
 
 int run_queen(queen_state_p s, int timeout)
 {
+    // fprintf(stderr, "run_queen: start\n");
+
     int fds_n = 1 + s->emmets_n;
     int poll_rc = poll(s->fds, fds_n, timeout);
     if (poll_rc < 0)
@@ -244,6 +285,20 @@ int run_queen(queen_state_p s, int timeout)
     rc = process_duties(s);
 
     return rc;
+}
+
+void free_duty(duty_p d)
+{
+    if (d->input != NULL)
+    {
+        free(d->input);
+    }
+    if (d->result != NULL)
+    {
+        free(d->result);
+    }
+
+    free(d);
 }
 
 void free_queen_state(queen_state_p s)

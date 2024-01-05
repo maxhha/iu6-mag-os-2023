@@ -54,6 +54,14 @@ int TEMPLATE(append_vec, T) (TEMPLATE3(vec, T, p) v, T val) {
 }
 
 void TEMPLATE(free_vec, T) (TEMPLATE3(vec, T, p) v) {
+    #ifdef FREE_T
+
+    for (int i = 0; i < v->size; i++) {
+        FREE_T() (v->data[i]);
+    }
+
+    #endif
+
     free(v->data);
     free(v);
 }

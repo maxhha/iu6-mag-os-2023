@@ -16,12 +16,17 @@
 typedef struct duty_s {
     int state;
     int size;
-    // int *input;
+    int *input;
+    int *result;
     // int *result;
 } *duty_p;
 
+void free_duty(duty_p d);
+
 #define T duty_p
+#define FREE_T() free_duty
 #include "vec.tmpl.h"
+#undef FREE_T
 #undef T
 
 typedef struct emmet_s {
@@ -38,6 +43,7 @@ typedef struct queen_state_s {
     struct pollfd fds[MAX_EMMETS + 1]; // at 0 is queen socket
 
     vec_duty_p_p duties;
+    int finished_duties_n;
 
 } *queen_state_p;
 

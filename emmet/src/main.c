@@ -37,6 +37,10 @@ static int parse_opt(int key, char *arg, struct argp_state *state) {
 
 static struct argp argp = { options, parse_opt, args_doc, doc };
 
+int compare_int(const int *a, const int *b) {
+    return *a - *b;
+}
+
 int main(int argc, char **argv) {
     int rc = 0;
     struct arguments_s args = {
@@ -68,20 +72,67 @@ int main(int argc, char **argv) {
         goto fail_connect;
     }
 
-    sleep(10);
+    for(;;)
+    {
+        int duty_size;
+        ssize_t recv_n = recv(emmet_s, &duty_size, sizeof(int), 0);
+        if (recv_n < 0) {
+            perror("main: recv duty_size");
+            rc = 1;
+            goto fail_recv;
+        }
 
-    /*
-        Emmet creates tcp connection to queen.
-        Queen gathers available emmets for work.
-        Queen splits and sends data for work to emmets.
-        Queen pings emmets. If someone failed
-          ж  ж  ж  ж  ж  .  ?
-        // print ж for every working emmet
-        // print ? for every disappeared worker
-        // print . when worker is free
-        // when data returned
-    */
+        if (recv_n != sizeof(int)) {
+            fprintf(stderr, "main: duty_size recv_n not sizeof int %ld != %ld\n", recv_n, sizeof(int));
+            rc = 1;
+            goto fail_recv;
+        }
 
+        int *buf = (int *) malloc(duty_size * sizeof(int));
+        recv_n = recv(emmet_s, buf, duty_size * sizeof(int), 0);
+        if (recv_n < 0) {
+            perror("main: recv input");
+            free(buf);
+            rc = 1;
+            goto fail_recv;
+        }
+
+        if (duty_size * sizeof(int) != recv_n) {
+            fprintf(stderr, "main: duty_size not match to received data size: %ld != %ld\n", duty_size * sizeof(int), recv_n);
+            rc = 1;
+            free(buf);
+            goto fail_recv;
+        }
+
+        fprintf(stderr, "R [%d]\n", duty_size);
+
+        // TODO: here must be parallel merge sort
+        qsort(buf, duty_size, sizeof(int), (int(*) (const void *, const void *)) compare_int);
+
+        fprintf(stderr, "F [%d]\n", duty_size);
+
+        ssize_t sent_n = send(emmet_s, buf, sizeof(int) * duty_size, 0);
+        if (sent_n < 0) {
+            perror("main: send result");
+            free(buf);
+            rc = 1;
+            goto fail_recv;
+        }
+
+        if (sent_n != sizeof(int) * duty_size) {
+            fprintf(stderr, "main: sent_n mismatch %ld != %ld\n", sent_n, sizeof(int) * duty_size);
+            free(buf);
+            rc = 1;
+            goto fail_recv;
+        }
+        else {
+            fprintf(stderr, "S [%d]\n", duty_size);
+        }
+
+        free(buf);
+    }
+
+fail_recv:
 fail_connect:
     close(emmet_s);
 
