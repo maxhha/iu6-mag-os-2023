@@ -35,7 +35,7 @@ int receive_queen_addr(int wait_sec, int bcast_port, struct sockaddr_in *queen_a
     struct sockaddr_storage server_addr = {0};
     socklen_t server_addr_len = sizeof(server_addr);
 
-    printf("Waiting for broadcast message on port %d...\n", bcast_port);
+    fprintf(stderr, "Waiting for broadcast message on port %d...\n", bcast_port);
 
     in_port_t port;
     int read_n = recvfrom(fd_s, &port, sizeof(port), 0, (struct sockaddr *) &server_addr, &server_addr_len);
@@ -55,9 +55,9 @@ int receive_queen_addr(int wait_sec, int bcast_port, struct sockaddr_in *queen_a
 	    0)) != 0) {
 		fprintf(stderr, "receive_queen_addr: getnameinfo err %d\n", herr);
 	}
-    printf("Receive message from %s:%s\n", remote_host, remote_port);
-    printf("Receive port in message: %d\n", ntohs(port));
-    printf("Queen should be at %s:%d\n", remote_host, ntohs(port));
+    fprintf(stderr, "Receive message from %s:%s\n", remote_host, remote_port);
+    fprintf(stderr, "Receive port in message: %d\n", ntohs(port));
+    fprintf(stderr, "Queen should be at %s:%d\n", remote_host, ntohs(port));
 
     if (sizeof(struct sockaddr_in) != server_addr_len) {
         fprintf(stderr, "Queen addr not match to sizeof (struct sockaddr_in)\n");
