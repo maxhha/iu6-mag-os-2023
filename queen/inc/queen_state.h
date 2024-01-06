@@ -5,13 +5,16 @@
 #define MAX_EMMETS 200
 #define MAX_DUTIES 10
 
-#define DUTY_STATE_WAITING 0x5701
-#define DUTY_STATE_PROCESSING 0x5702
-#define DUTY_STATE_FINISHED 0x5703
+
+#define DUTY_STATE_WAITING 0xD501
+#define DUTY_STATE_PROCESSING 0xD502
+#define DUTY_STATE_FINISHED 0xD503
+
 
 #define EMMET_STATE_EMPTY 0x3500
 #define EMMET_STATE_CHILLING 0x3501
 #define EMMET_STATE_HARD_WORKING 0x3502
+#define EMMET_STATE_CARRYING_RESULT 0x03503
 
 typedef struct duty_s {
     int state;
@@ -30,8 +33,15 @@ void free_duty(duty_p d);
 #undef T
 
 typedef struct emmet_s {
-    int processing_duty_i;
     int state;
+
+    // EMMET_STATE_HARD_WORKING
+    // EMMET_STATE_CARRYING_RESULT
+    int processing_duty_i;
+
+    // EMMET_STATE_CARRYING_RESULT
+    size_t received_result_n;
+    char *result_buf;
 } *emmet_p;
 
 typedef struct queen_state_s {

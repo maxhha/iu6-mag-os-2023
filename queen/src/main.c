@@ -41,6 +41,7 @@ static struct argp_option options[] = {
     {"address", 'a', "ADDR", 0, "Broadcast address of the colony (default: 255.255.255.255)", 0},
     {"port", 'p', "PORT", 0, "Port of the colony (default: 12345)", 0},
     {"wait", 'w', "SECONDS", 0, "How long should wait for the emmets (default: 10)", 0},
+    {"duty_max_size", 'd', "NUMBER", 0, "Max amount of work for one emmet duty (default: 2048)", 0},
     {0}};
 
 static int parse_opt(int key, char *arg, struct argp_state *state)
@@ -60,6 +61,8 @@ static int parse_opt(int key, char *arg, struct argp_state *state)
         return sscanf(arg, "%d", &args->port) != 1;
     case 'w':
         return sscanf(arg, "%d", &args->wait) != 1;
+    case 'd':
+        return sscanf(arg, "%d", &args->duty_max_size) != 1;
     }
     return ARGP_ERR_UNKNOWN;
 }
@@ -73,7 +76,7 @@ int main(int argc, char **argv)
         .address = "255.255.255.255",
         .port = 12345,
         .wait = 10,
-        .duty_max_size = 10,
+        .duty_max_size = 2048,
     };
     rc = argp_parse(&argp, argc, argv, 0, NULL, &args);
     if (rc != 0)

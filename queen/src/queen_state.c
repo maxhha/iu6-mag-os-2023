@@ -93,6 +93,9 @@ int process_queen_socket_events(queen_state_p s, struct pollfd *fd)
 
         int emmet_i = s->emmets_n;
         s->emmets[emmet_i].state = EMMET_STATE_CHILLING;
+        s->emmets[emmet_i].result_buf = NULL;
+        s->emmets[emmet_i].received_result_n = 0;
+
         fprintf(stderr, "+ Ж #%d %s:%s\n", emmet_i + 1, remote_host, remote_port);
 
         int fd_i = emmet_i + 1;
@@ -114,6 +117,11 @@ void drop_emmet(queen_state_p s, int emmet_i)
     }
 
     s->emmets[emmet_i].state = EMMET_STATE_EMPTY;
+
+    if (s->emmets[emmet_i].result_buf != NULL) {
+        free(s->emmets[emmet_i].result_buf);
+    }
+
     s->fds[fd_i].fd = 0;
     s->fds[fd_i].events = 0;
 }
@@ -133,40 +141,56 @@ int process_emmet_socket_events(queen_state_p s, struct pollfd *fd, int fd_i)
 
     if (fd->revents & POLLIN)
     {
-        // TODO: check emmet state
-        // fprintf(stderr, "process_emmet_socket_events: POLLIN\n");
+        emmet_p emmet = &s->emmets[emmet_i];
+        if (emmet->state != EMMET_STATE_HARD_WORKING && emmet->state != EMMET_STATE_CARRYING_RESULT) {
+            fprintf(stderr, "process_emmet_socket_events: emmet is in wrong state 0x%x\n", emmet->state);
+
+            drop_emmet(s, emmet_i);
+
+            return 0;
+        }
+
         int duty_i = s->emmets[emmet_i].processing_duty_i;
         duty_p d = s->duties->data[duty_i];
-        int *buf = (int *) malloc(sizeof(int) * d->size);
+        size_t duty_size_bytes = sizeof(int) * d->size;
 
-        ssize_t recv_n = recv(fd->fd, buf, sizeof(int) * d->size, 0);
-        if (recv_n < 0)
+        if (emmet->state == EMMET_STATE_HARD_WORKING) {
+            emmet->state = EMMET_STATE_CARRYING_RESULT;
+            emmet->received_result_n = 0;
+            emmet->result_buf = (char *) malloc(duty_size_bytes);
+        }
+
+        ssize_t recv_n = recv(fd->fd, ((char *) emmet->result_buf) + emmet->received_result_n, duty_size_bytes - emmet->received_result_n, 0);
+        if (recv_n <= 0)
         {
             perror("process_emmet_socket_events: recv from emmet");
-            free(buf);
             drop_emmet(s, emmet_i);
 
             return 0;
         }
 
-        if (recv_n != sizeof(int) * d->size) {
-            fprintf(stderr, "process_emmet_socket_events: recv_n mismatch duty size %ld != %ld\n", recv_n, sizeof(int) * d->size);
-            free(buf);
+        emmet->received_result_n += recv_n;
+
+        fprintf(stderr, "R Ж #%d -[%3.0f%%]-> duty #%d\n", emmet_i + 1, (float) emmet->received_result_n / duty_size_bytes * 100, duty_i + 1);
+
+        if (emmet->received_result_n == duty_size_bytes) {
+            d->result = (int *) emmet->result_buf;
+            free(d->input);
+            d->input = NULL;
+            d->state = DUTY_STATE_FINISHED;
+
+            emmet->result_buf = NULL;
+            emmet->state = EMMET_STATE_CHILLING;
+
+            s->finished_duties_n++;
+        }
+        else if (emmet->received_result_n > duty_size_bytes) {
+            fprintf(stderr, "process_emmet_socket_events: received_result_n is greater than duty_size_bytes: %ld > %ld\n", emmet->received_result_n, duty_size_bytes);
             drop_emmet(s, emmet_i);
 
             return 0;
         }
 
-        fprintf(stderr, "R Ж #%d -> duty #%d\n", emmet_i + 1, duty_i + 1);
-
-        d->result = buf;
-        free(d->input);
-        d->input = NULL;
-        d->state = DUTY_STATE_FINISHED;
-
-        s->finished_duties_n++;
-
-        s->emmets[emmet_i].state = EMMET_STATE_CHILLING;
         return 0;
     }
 

@@ -93,16 +93,24 @@ int main(int argc, char **argv) {
             goto fail_recv;
         }
 
-        int *buf = (int *) malloc(duty_size * sizeof(int));
-        recv_n = recv(emmet_s, buf, duty_size * sizeof(int), 0);
-        if (recv_n < 0) {
-            perror("main: recv input");
-            free(buf);
-            rc = 1;
-            goto fail_recv;
+        size_t duty_size_bytes = duty_size * sizeof(int);
+
+        int *buf = (int *) malloc(duty_size_bytes);
+        size_t total_received = 0;
+
+        while (total_received < duty_size_bytes) {
+            recv_n = recv(emmet_s, ((char *) buf) + total_received, duty_size_bytes - total_received, 0);
+            if (recv_n <= 0) {
+                perror("main: recv input");
+                free(buf);
+                rc = 1;
+                goto fail_recv;
+            }
+
+            total_received += recv_n;
         }
 
-        if (duty_size * sizeof(int) != recv_n) {
+        if (duty_size_bytes != total_received) {
             fprintf(stderr, "main: duty_size not match to received data size: %ld != %ld\n", duty_size * sizeof(int), recv_n);
             rc = 1;
             free(buf);
@@ -116,7 +124,7 @@ int main(int argc, char **argv) {
 
         fprintf(stderr, "F [%d]\n", duty_size);
 
-        ssize_t sent_n = send(emmet_s, buf, sizeof(int) * duty_size, 0);
+        ssize_t sent_n = send(emmet_s, buf, duty_size_bytes, 0);
         if (sent_n < 0) {
             perror("main: send result");
             free(buf);
@@ -124,7 +132,7 @@ int main(int argc, char **argv) {
             goto fail_recv;
         }
 
-        if (sent_n != sizeof(int) * duty_size) {
+        if (sent_n != duty_size_bytes) {
             fprintf(stderr, "main: sent_n mismatch %ld != %ld\n", sent_n, sizeof(int) * duty_size);
             free(buf);
             rc = 1;

@@ -13,7 +13,7 @@ int append_duties_from_stdin(vec_duty_p_p duties, int max_size) {
         d->result = NULL;
 
         for (int j = 0; j < d->size; j++) {
-            d->input[j] = 10000 * i + j;
+            d->input[j] = 10000 * i + (d->size - 1 - j);
         }
 
         if (append_vec_duty_p(duties, d)) {
