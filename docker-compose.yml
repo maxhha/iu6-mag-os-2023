@@ -4,15 +4,12 @@ services:
   emmet:
     build:
       dockerfile: Dockerfile.emmet
-    command: emmet.exe -p 12345
-    expose:
-      - 12345/udp
+    command: emmet.exe
 
   queen:
     build:
       dockerfile: Dockerfile.queen
-    command: queen.exe -p 12345
+    command: queen.exe
     depends_on:
       - emmet
-# 172.21.0.0/16
 
