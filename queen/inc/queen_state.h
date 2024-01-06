@@ -24,6 +24,7 @@ typedef struct duty_s {
     // int *result;
 } *duty_p;
 
+duty_p create_duty_from_input(int *input, int size);
 void free_duty(duty_p d);
 
 #define T duty_p

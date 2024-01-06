@@ -311,6 +311,19 @@ int run_queen(queen_state_p s, int timeout)
     return rc;
 }
 
+duty_p create_duty_from_input(int *input, int size) {
+    duty_p d = (duty_p) malloc(sizeof(struct duty_s));
+    if (d == NULL) {
+        fprintf(stderr, "create_duty_from_input: failed to malloc duty\n");
+        return NULL;
+    }
+    d->state = DUTY_STATE_WAITING;
+    d->size = size;
+    d->input = input;
+    d->result = NULL;
+    return d;
+}
+
 void free_duty(duty_p d)
 {
     if (d->input != NULL)

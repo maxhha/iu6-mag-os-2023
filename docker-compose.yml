@@ -9,7 +9,10 @@ services:
   queen:
     build:
       dockerfile: Dockerfile.queen
-    command: queen.exe
+    command: bash -c "cat /data/input.txt | queen.exe -d 1048576 > /opt/result/result.txt"
     depends_on:
       - emmet
+    volumes:
+      - ./sample100M.txt:/data/input.txt:ro
+      - ./out:/opt/result/:rw
 
