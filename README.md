@@ -20,7 +20,7 @@
 ```
 $ python generate_input.py 100000000
 ..........
-Saved in sample100M.txt
+Saved in data/sample100M.txt
 ```
 
 Проект делится на 2 подпроекта:
@@ -92,16 +92,16 @@ for any corresponding short options.
 В корне проекта:
 ```bash
 make
-python generate_input.py
+python generate_input.py 100000
 ./emmet.exe &  # запустили процесс в фоне
-cat sample100M.txt | ./queen.exe > result.txt
+cat data/sample100K.txt | ./queen.exe > ./out/result.txt
 ```
 
 ## Запуск в docker
 
 В корне проекта:
-```
+```bash
 python generate_input.py 100_000_000
-docker compose up --build --scale emmet=3
+INPUT_FILE=sample100M.txt docker compose up --build --scale emmet=3
 # Результат будет сохранен в ./out/result.txt
 ```

@@ -1,8 +1,7 @@
 .vscode/
 
+data/
 out/
 */out/
 *.o
 *.exe
-
-sample*.txt
