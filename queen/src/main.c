@@ -15,6 +15,7 @@
 #include "../inc/create_queen_socket.h"
 #include "../inc/queen_state.h"
 #include "../inc/append_duties_from_stdin.h"
+#include "../inc/print_duties_result.h"
 
 typedef struct arguments_s
 {
@@ -68,97 +69,6 @@ static int parse_opt(int key, char *arg, struct argp_state *state)
 }
 
 static struct argp argp = {options, parse_opt, args_doc, doc};
-
-typedef struct printing_list_s {
-    int pos;
-    int size;
-    int *value;
-    struct printing_list_s* next;
-} *printing_list_p;
-
-printing_list_p create_printing_list(int size, int *buf) {
-    printing_list_p l = (printing_list_p) malloc(sizeof(struct printing_list_s));
-    if (l == NULL) {
-        fprintf(stderr, "create_printing_list: malloc\n");
-        return NULL;
-    }
-    l->pos = 0;
-    l->size = size;
-    l->value = buf;
-    l->next = NULL;
-    return l;
-}
-
-void free_printing_list(printing_list_p l) {
-    while (l != NULL) {
-        printing_list_p n = l->next;
-        free(l);
-        l = n;
-    }
-}
-
-void print_merged_result(vec_duty_p_p duties) {
-    fprintf(stderr, "Printing result for %d duties...\n", duties->size);
-    if (duties->size > 10) {
-        fprintf(stderr, "HINT: increase duty_max_size to make it faster (current: %d)\n", duties->data[0]->size);
-    }
-
-    // TODO: use heap
-    int n = duties->size;
-    size_t total_size = 0;
-    size_t printed_n = 0;
-
-    printing_list_p head = NULL;
-    printing_list_p *p = &head;
-
-    for (int i = 0; i < n; i++) {
-        duty_p d = duties->data[i];
-        *p = create_printing_list(d->size, d->result);
-        if (*p == NULL) {
-            goto fail_create_printing_list;
-        }
-        total_size += d->size;
-        p = &((*p)->next);
-    }
-
-    while(head != NULL)
-    {
-        printing_list_p p_min = head;
-        printing_list_p p_min_prev = NULL;
-
-        for (printing_list_p p_prev = head, p = head->next; p != NULL; p_prev = p, p = p->next) {
-            if (*p->value < *p_min->value) {
-                p_min_prev = p_prev;
-                p_min = p;
-            }
-        }
-
-        printf("%d\n", *p_min->value);
-        p_min->value++;
-        p_min->pos++;
-
-        if (p_min->pos >= p_min->size) {
-            printing_list_p p = p_min->next;
-            p_min->next = NULL;
-            free_printing_list(p_min);
-
-            if (p_min_prev == NULL) {
-                head = p;
-            } else {
-                p_min_prev->next = p;
-            }
-        }
-
-        printed_n += 1;
-        if (printed_n % (total_size / 10) == 0) {
-            fprintf(stderr, "Progress: %.0f%%\n", (float) printed_n / total_size * 100);
-        }
-    }
-
-    fprintf(stderr, "Done\n");
-fail_create_printing_list:
-    free_printing_list(head);
-}
 
 int main(int argc, char **argv)
 {
@@ -220,7 +130,7 @@ int main(int argc, char **argv)
             goto fail_run_queen;
         }
     }
-    print_merged_result(state->duties);
+    print_duties_result(state->duties);
 
 fail_run_queen:
 fail_broadcast_queen_port:
