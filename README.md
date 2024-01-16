@@ -62,6 +62,8 @@ $ ./emmet.exe --help
 Usage: emmet.exe [OPTION...] [-p PORT] [-w SECONDS]
 Worker of the colony
 
+  -a, --arms=THREADS         How many threads emmet can handle simultaneously
+                             (default: 6)
   -p, --port=PORT            Port to listen for the queen (default: 12345)
   -w, --wait=SECONDS         How long should wait for the queen (default: 30)
   -?, --help                 Give this help list
