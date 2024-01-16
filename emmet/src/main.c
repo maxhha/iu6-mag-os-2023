@@ -7,18 +7,21 @@
 
 #include "../inc/main.h"
 #include "../inc/receive_queen_addr.h"
+#include "../inc/parallel_sort.h"
 
 typedef struct arguments_s {
     int port;
     int wait;
+    int arms;
 } *arguments_p;
 
 static char doc[] = "Worker of the colony";
-static char args_doc[] = "[-p PORT] [-w SECONDS]";
+static char args_doc[] = "[-p PORT] [-w SECONDS] [-a THREADS]";
 
 static struct argp_option options[] = {
     {"port", 'p', "PORT", 0, "Port to listen for the queen (default: 12345)", 0},
     {"wait", 'w', "SECONDS", 0, "How long should wait for the queen (default: 30)", 0},
+    {"arms", 'a', "THREADS", 0, "How many threads emmet can handle simultaneously (default: 6)", 0},
     {0}
 };
 
@@ -31,21 +34,24 @@ static int parse_opt(int key, char *arg, struct argp_state *state) {
         return sscanf(arg, "%d", &args->port) != 1;
     case 'w':
         return sscanf(arg, "%d", &args->wait) != 1;
+    case 'a':
+        return sscanf(arg, "%d", &args->arms) != 1;
     }
     return ARGP_ERR_UNKNOWN;
 }
 
 static struct argp argp = { options, parse_opt, args_doc, doc };
 
-int compare_int(const int *a, const int *b) {
-    return *a - *b;
-}
+// int compare_int(const int *a, const int *b) {
+//     return *a - *b;
+// }
 
 int main(int argc, char **argv) {
     int rc = 0;
     struct arguments_s args = {
         .port =12345,
         .wait = 30,
+        .arms = 6,
     };
 
     rc = argp_parse(&argp, argc, argv, 0, NULL, &args);
@@ -120,7 +126,14 @@ int main(int argc, char **argv) {
         fprintf(stderr, "R [%d]\n", duty_size);
 
         // TODO: here must be parallel merge sort
-        qsort(buf, duty_size, sizeof(int), (int(*) (const void *, const void *)) compare_int);
+        rc = parallel_sort(buf, duty_size, args.arms);
+        if (rc != 0) {
+            free(buf);
+            rc = 1;
+            goto fail_recv;
+        }
+
+        // qsort(buf, duty_size, sizeof(int), (int(*) (const void *, const void *)) compare_int);
 
         fprintf(stderr, "F [%d]\n", duty_size);
 

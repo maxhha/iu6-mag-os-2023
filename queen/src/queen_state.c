@@ -124,6 +124,10 @@ void drop_emmet(queen_state_p s, int emmet_i)
 
     s->fds[fd_i].fd = 0;
     s->fds[fd_i].events = 0;
+
+    while (s->emmets_n > 0 && s->emmets[s->emmets_n - 1].state == EMMET_STATE_EMPTY) {
+        s->emmets_n--;
+    }
 }
 
 int process_emmet_socket_events(queen_state_p s, struct pollfd *fd, int fd_i)
