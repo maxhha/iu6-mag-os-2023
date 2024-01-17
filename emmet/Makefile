@@ -1,5 +1,6 @@
 CFLAGS := --std=gnu17 -Wall -Werror -Wfloat-equal -Wfloat-conversion -Wpedantic
 CFLAGS += $(cflags)
+LFLAGS := -lpthread
 
 SRCS := $(filter-out $(wildcard src/*.tmpl.c), $(wildcard src/*.c))
 
